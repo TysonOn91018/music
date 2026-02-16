@@ -1458,19 +1458,46 @@ function chatSendMessage(text) {
   
   // 使用 async/await 确保错误被正确捕获
   (async () => {
+    console.log("[Chat] Starting async insert operation...");
     try {
-      const { data, error } = await supabase
+      const insertData = {
+        room_id: roomHash,
+        user_id: userId,
+        user_name: userName,
+        message: t,
+      };
+      console.log("[Chat] Insert data:", insertData);
+      
+      // 添加超时处理（10秒）
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("TIMEOUT")), 10000)
+      );
+      
+      const insertPromise = supabase
         .from("chat_messages")
-        .insert({
-          room_id: roomHash,
-          user_id: userId,
-          user_name: userName,
-          message: t,
-        })
-        .select(); // 添加 select() 以获取返回的数据
+        .insert(insertData)
+        .select();
+      
+      console.log("[Chat] Waiting for insert response...");
+      let result;
+      try {
+        result = await Promise.race([insertPromise, timeoutPromise]);
+      } catch (raceError) {
+        // 如果是超时错误，直接抛出
+        if (raceError.message === "TIMEOUT" || String(raceError.message).includes("タイムアウト")) {
+          throw new Error("メッセージ送信がタイムアウトしました（10秒）");
+        }
+        throw raceError;
+      }
+      
+      console.log("[Chat] Insert response received:", result);
+      
+      const { data, error } = result || { data: null, error: null };
       
       if (error) {
         console.error("[Chat] Failed to send message:", error);
+        console.error("[Chat] Error code:", error.code);
+        console.error("[Chat] Error message:", error.message);
         console.error("[Chat] Error details:", JSON.stringify(error, null, 2));
         toast("メッセージの送信に失敗しました: " + (error.message || "不明なエラー"));
       } else {
@@ -1479,6 +1506,9 @@ function chatSendMessage(text) {
       }
     } catch (error) {
       console.error("[Chat] Exception while sending message:", error);
+      console.error("[Chat] Exception name:", error?.name);
+      console.error("[Chat] Exception message:", error?.message);
+      console.error("[Chat] Exception stack:", error?.stack);
       console.error("[Chat] Exception details:", JSON.stringify(error, null, 2));
       toast("メッセージの送信に失敗しました: " + (error.message || "不明なエラー"));
     }
