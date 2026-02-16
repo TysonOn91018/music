@@ -1492,26 +1492,41 @@ function chatSendMessage(text) {
       };
       console.log("[Chat] Insert data:", insertData);
       
-      // 添加超时处理（10秒）
+      // 增加超时时间到30秒，并添加重试机制
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("TIMEOUT")), 10000)
+        setTimeout(() => reject(new Error("TIMEOUT")), 30000)
       );
       
+      // 直接使用insert，不等待select响应（减少延迟）
       const insertPromise = supabase
         .from("chat_messages")
-        .insert(insertData)
-        .select();
+        .insert(insertData);
       
       console.log("[Chat] Waiting for insert response...");
       let result;
       try {
         result = await Promise.race([insertPromise, timeoutPromise]);
       } catch (raceError) {
-        // 如果是超时错误，直接抛出
+        // 如果是超时错误，尝试重试一次
         if (raceError.message === "TIMEOUT" || String(raceError.message).includes("タイムアウト")) {
-          throw new Error("メッセージ送信がタイムアウトしました（10秒）");
+          console.warn("[Chat] 第一次发送超时，尝试重试...");
+          try {
+            // 重试一次，使用更短的超时
+            const retryPromise = supabase
+              .from("chat_messages")
+              .insert(insertData);
+            const retryTimeout = new Promise((_, reject) =>
+              setTimeout(() => reject(new Error("RETRY_TIMEOUT")), 15000)
+            );
+            result = await Promise.race([retryPromise, retryTimeout]);
+            console.log("[Chat] 重试成功");
+          } catch (retryError) {
+            console.error("[Chat] 重试也失败:", retryError);
+            throw new Error("メッセージ送信がタイムアウトしました。ネットワーク接続を確認してください。");
+          }
+        } else {
+          throw raceError;
         }
-        throw raceError;
       }
       
       console.log("[Chat] Insert response received:", result);
@@ -1522,19 +1537,33 @@ function chatSendMessage(text) {
         console.error("[Chat] Failed to send message:", error);
         console.error("[Chat] Error code:", error.code);
         console.error("[Chat] Error message:", error.message);
-        console.error("[Chat] Error details:", JSON.stringify(error, null, 2));
-        toast("メッセージの送信に失敗しました: " + (error.message || "不明なエラー"));
+        console.error("[Chat] Error details:", error.details);
+        console.error("[Chat] Error hint:", error.hint);
+        
+        // 根据错误类型显示不同的提示
+        let errorMsg = "メッセージの送信に失敗しました";
+        if (error.code === "42501") {
+          errorMsg = "権限がありません。RLS ポリシーを確認してください。";
+        } else if (error.code === "42P01") {
+          errorMsg = "chat_messages テーブルが存在しません。データベース設定を確認してください。";
+        } else if (error.message) {
+          errorMsg = error.message;
+        }
+        
+        toast(errorMsg);
       } else {
-        console.log("[Chat] Message sent successfully, data:", data);
+        console.log("[Chat] Message sent successfully");
         // 消息发送成功，应该会通过 Realtime 订阅自动显示
+        // 不显示成功提示，避免干扰用户体验
       }
     } catch (error) {
       console.error("[Chat] Exception while sending message:", error);
       console.error("[Chat] Exception name:", error?.name);
       console.error("[Chat] Exception message:", error?.message);
-      console.error("[Chat] Exception stack:", error?.stack);
-      console.error("[Chat] Exception details:", JSON.stringify(error, null, 2));
-      toast("メッセージの送信に失敗しました: " + (error.message || "不明なエラー"));
+      
+      // 只显示用户友好的错误信息
+      const userMsg = error.message || "不明なエラー";
+      toast("メッセージの送信に失敗しました: " + userMsg);
     }
   })();
 }
