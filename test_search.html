@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>测试搜索功能</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #fff;
+        }
+        .test-section {
+            background: #2a2a2a;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #5568d3;
+        }
+        pre {
+            background: #1a1a1a;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 12px;
+        }
+        .success { color: #4caf50; }
+        .error { color: #f44336; }
+        .info { color: #2196f3; }
+    </style>
+</head>
+<body>
+    <h1>🔍 Supabase 搜索功能测试</h1>
+    
+    <div class="test-section">
+        <h2>1. 检查 Supabase 连接</h2>
+        <button onclick="testConnection()">测试连接</button>
+        <div id="connection-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>2. 检查 users 表</h2>
+        <button onclick="checkUsersTable()">检查表</button>
+        <div id="table-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>3. 列出所有用户（测试 RLS）</h2>
+        <button onclick="listAllUsers()">列出所有用户</button>
+        <div id="users-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>4. 测试搜索功能</h2>
+        <input type="text" id="searchQuery" placeholder="输入搜索关键词" style="padding: 8px; width: 200px; margin-right: 10px;">
+        <button onclick="testSearch()">搜索</button>
+        <div id="search-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>5. 检查 RLS 策略</h2>
+        <button onclick="checkRLSPolicies()">检查策略</button>
+        <div id="rls-result"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+        const SUPABASE_CONFIG = {
+            url: "https://nlavqjsztdfxksjusyky.supabase.co",
+            anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5sYXZxanN6dGRmeGtzanVzeWt5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAxNzU1MDcsImV4cCI6MjA4NTc1MTUwN30.moPoq8daEdww89UYhYX0JJA8XpwT1CqKPXxJq8k7b54"
+        };
+        
+        let supabase = null;
+        
+        async function testConnection() {
+            const resultDiv = document.getElementById('connection-result');
+            try {
+                supabase = window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey);
+                resultDiv.innerHTML = '<p class="success">✅ Supabase 连接成功</p>';
+                return true;
+            } catch (error) {
+                resultDiv.innerHTML = `<p class="error">❌ 连接失败: ${error.message}</p>`;
+                return false;
+            }
+        }
+        
+        async function checkUsersTable() {
+            const resultDiv = document.getElementById('table-result');
+            if (!supabase) {
+                await testConnection();
+            }
+            
+            try {
+                // 尝试查询表结构
+                const { data, error } = await supabase
+                    .from('users')
+                    .select('*')
+                    .limit(0);
+                
+                if (error) {
+                    if (error.code === '42P01') {
+                        resultDiv.innerHTML = '<p class="error">❌ users 表不存在<br><small>请执行 friends-setup.sql</small></p>';
+                    } else {
+                        resultDiv.innerHTML = `<p class="error">❌ 错误: ${error.message}<br><small>代码: ${error.code}</small></p>`;
+                    }
+                } else {
+                    resultDiv.innerHTML = '<p class="success">✅ users 表存在且可访问</p>';
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<p class="error">❌ 检查失败: ${error.message}</p>`;
+            }
+        }
+        
+        async function listAllUsers() {
+            const resultDiv = document.getElementById('users-result');
+            if (!supabase) {
+                await testConnection();
+            }
+            
+            try {
+                const { data, error } = await supabase
+                    .from('users')
+                    .select('id, email, name')
+                    .limit(20);
+                
+                if (error) {
+                    if (error.code === '42501') {
+                        resultDiv.innerHTML = '<p class="error">❌ RLS 策略问题：无法查看所有用户<br><small>请执行 fix-rls-policy.sql</small></p>';
+                    } else {
+                        resultDiv.innerHTML = `<p class="error">❌ 错误: ${error.message}<br><small>代码: ${error.code}</small></p>`;
+                    }
+                } else {
+                    if (data && data.length > 0) {
+                        resultDiv.innerHTML = `<p class="success">✅ 找到 ${data.length} 个用户:</p><pre>${JSON.stringify(data, null, 2)}</pre>`;
+                    } else {
+                        resultDiv.innerHTML = '<p class="info">ℹ️ 表中没有用户数据<br><small>请先注册一些用户</small></p>';
+                    }
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<p class="error">❌ 查询失败: ${error.message}</p>`;
+            }
+        }
+        
+        async function testSearch() {
+            const resultDiv = document.getElementById('search-result');
+            const query = document.getElementById('searchQuery').value.trim();
+            
+            if (!query) {
+                resultDiv.innerHTML = '<p class="error">请输入搜索关键词</p>';
+                return;
+            }
+            
+            if (!supabase) {
+                await testConnection();
+            }
+            
+            resultDiv.innerHTML = '<p class="info">搜索中...</p>';
+            
+            try {
+                // 测试邮箱搜索
+                const emailResult = await supabase
+                    .from('users')
+                    .select('id, email, name')
+                    .ilike('email', `%${query}%`)
+                    .limit(10);
+                
+                // 测试用户名搜索
+                const nameResult = await supabase
+                    .from('users')
+                    .select('id, email, name')
+                    .ilike('name', `%${query}%`)
+                    .limit(10);
+                
+                let html = '<h3>搜索结果:</h3>';
+                
+                if (emailResult.error) {
+                    html += `<p class="error">邮箱搜索错误: ${emailResult.error.message}<br><small>代码: ${emailResult.error.code}</small></p>`;
+                } else {
+                    html += `<p class="info">邮箱搜索: 找到 ${emailResult.data?.length || 0} 个结果</p>`;
+                    if (emailResult.data && emailResult.data.length > 0) {
+                        html += `<pre>${JSON.stringify(emailResult.data, null, 2)}</pre>`;
+                    }
+                }
+                
+                if (nameResult.error) {
+                    html += `<p class="error">用户名搜索错误: ${nameResult.error.message}<br><small>代码: ${nameResult.error.code}</small></p>`;
+                } else {
+                    html += `<p class="info">用户名搜索: 找到 ${nameResult.data?.length || 0} 个结果</p>`;
+                    if (nameResult.data && nameResult.data.length > 0) {
+                        html += `<pre>${JSON.stringify(nameResult.data, null, 2)}</pre>`;
+                    }
+                }
+                
+                if (!emailResult.error && !nameResult.error && 
+                    (!emailResult.data || emailResult.data.length === 0) && 
+                    (!nameResult.data || nameResult.data.length === 0)) {
+                    html += '<p class="info">ℹ️ 没有找到匹配的用户<br><small>可能原因：<br>1. 数据库中没有用户<br>2. 搜索关键词不匹配</small></p>';
+                }
+                
+                resultDiv.innerHTML = html;
+            } catch (error) {
+                resultDiv.innerHTML = `<p class="error">❌ 搜索异常: ${error.message}</p>`;
+            }
+        }
+        
+        async function checkRLSPolicies() {
+            const resultDiv = document.getElementById('rls-result');
+            resultDiv.innerHTML = '<p class="info">ℹ️ 请在 Supabase Dashboard 的 SQL Editor 中执行以下查询来检查 RLS 策略:</p><pre>SELECT \n  schemaname,\n  tablename,\n  policyname,\n  permissive,\n  roles,\n  cmd\nFROM pg_policies\nWHERE tablename = \'users\'\nORDER BY policyname;</pre>';
+        }
+        
+        // 自动测试连接
+        window.addEventListener('load', () => {
+            setTimeout(testConnection, 500);
+        });
+    </script>
+</body>
+</html>

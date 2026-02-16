@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Supabase 设置检查工具</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #333;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        }
+        h1 {
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        .check-item {
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 6px;
+        }
+        .check-item h3 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+        .status {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        .status.pending {
+            background: #ffc107;
+            color: #000;
+        }
+        .status.success {
+            background: #28a745;
+            color: white;
+        }
+        .status.error {
+            background: #dc3545;
+            color: white;
+        }
+        .details {
+            margin-top: 10px;
+            padding: 10px;
+            background: white;
+            border-radius: 4px;
+            font-size: 13px;
+            color: #666;
+            display: none;
+        }
+        .details.show {
+            display: block;
+        }
+        .details pre {
+            background: #f1f1f1;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+            margin-top: 5px;
+            font-size: 12px;
+        }
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: background 0.3s;
+        }
+        button:hover {
+            background: #5568d3;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .summary {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            text-align: center;
+        }
+        .summary h2 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .summary .count {
+            font-size: 32px;
+            font-weight: bold;
+            color: #667eea;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Supabase 设置检查工具</h1>
+        <p class="subtitle">检查数据库表、RLS 策略和连接状态</p>
+        
+        <div id="checks">
+            <div class="check-item">
+                <h3>1. Supabase 连接 <span class="status pending" id="status-connection">检查中...</span></h3>
+                <div class="details" id="details-connection"></div>
+            </div>
+            
+            <div class="check-item">
+                <h3>2. users 表 <span class="status pending" id="status-users">等待中...</span></h3>
+                <div class="details" id="details-users"></div>
+            </div>
+            
+            <div class="check-item">
+                <h3>3. friend_requests 表 <span class="status pending" id="status-requests">等待中...</span></h3>
+                <div class="details" id="details-requests"></div>
+            </div>
+            
+            <div class="check-item">
+                <h3>4. friends 表 <span class="status pending" id="status-friends">等待中...</span></h3>
+                <div class="details" id="details-friends"></div>
+            </div>
+            
+            <div class="check-item">
+                <h3>5. RLS 策略检查 <span class="status pending" id="status-rls">等待中...</span></h3>
+                <div class="details" id="details-rls"></div>
+            </div>
+            
+            <div class="check-item">
+                <h3>6. 用户搜索功能测试 <span class="status pending" id="status-search">等待中...</span></h3>
+                <div class="details" id="details-search"></div>
+            </div>
+        </div>
+        
+        <button id="checkBtn" onclick="runAllChecks()">开始检查</button>
+        
+        <div class="summary" id="summary" style="display: none;">
+            <h2>检查结果</h2>
+            <div class="count" id="successCount">0</div>
+            <p>项检查通过</p>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+        const SUPABASE_CONFIG = window.MOOD_PLAYER_SUPABASE || {
+            url: "https://nlavqjsztdfxksjusyky.supabase.co",
+            anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5sYXZxanN6dGRmeGtzanVzeWt5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAxNzU1MDcsImV4cCI6MjA4NTc1MTUwN30.moPoq8daEdww89UYhYX0JJA8XpwT1CqKPXxJq8k7b54"
+        };
+
+        let supabase = null;
+        let successCount = 0;
+
+        function updateStatus(id, status, message = '') {
+            const statusEl = document.getElementById(`status-${id}`);
+            const detailsEl = document.getElementById(`details-${id}`);
+            
+            statusEl.className = `status ${status}`;
+            
+            if (status === 'pending') {
+                statusEl.textContent = '检查中...';
+            } else if (status === 'success') {
+                statusEl.textContent = '✓ 通过';
+                successCount++;
+            } else {
+                statusEl.textContent = '✗ 失败';
+            }
+            
+            if (message) {
+                detailsEl.innerHTML = message;
+                detailsEl.classList.add('show');
+            }
+        }
+
+        async function checkConnection() {
+            try {
+                supabase = window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey);
+                updateStatus('connection', 'success', '✅ Supabase 客户端初始化成功');
+                return true;
+            } catch (error) {
+                updateStatus('connection', 'error', `❌ 连接失败: ${error.message}`);
+                return false;
+            }
+        }
+
+        async function checkTable(tableName) {
+            try {
+                const { data, error } = await supabase
+                    .from(tableName)
+                    .select('*')
+                    .limit(1);
+                
+                if (error) {
+                    if (error.code === '42P01') {
+                        updateStatus(tableName, 'error', `❌ 表 "${tableName}" 不存在<br><small>请在 Supabase SQL Editor 中执行 friends-setup.sql</small>`);
+                    } else if (error.code === '42501') {
+                        updateStatus(tableName, 'error', `❌ RLS 策略问题: ${error.message}<br><small>请检查 RLS 策略设置</small>`);
+                    } else {
+                        updateStatus(tableName, 'error', `❌ 错误: ${error.message}`);
+                    }
+                    return false;
+                }
+                
+                updateStatus(tableName, 'success', `✅ 表 "${tableName}" 存在且可访问`);
+                return true;
+            } catch (error) {
+                updateStatus(tableName, 'error', `❌ 检查失败: ${error.message}`);
+                return false;
+            }
+        }
+
+        async function checkRLS() {
+            try {
+                // 尝试查询所有用户（需要 "Users can view all users" 策略）
+                const { data, error } = await supabase
+                    .from('users')
+                    .select('id, email, name')
+                    .limit(5);
+                
+                if (error) {
+                    if (error.code === '42501') {
+                        updateStatus('rls', 'error', `❌ RLS 策略缺失或配置错误<br><small>错误: ${error.message}</small><br><small>请执行 fix-rls-policy.sql 中的 SQL</small>`);
+                    } else {
+                        updateStatus('rls', 'error', `❌ RLS 检查失败: ${error.message}`);
+                    }
+                    return false;
+                }
+                
+                updateStatus('rls', 'success', `✅ RLS 策略配置正确<br><small>可以查询所有用户（用于搜索功能）</small>`);
+                return true;
+            } catch (error) {
+                updateStatus('rls', 'error', `❌ RLS 检查异常: ${error.message}`);
+                return false;
+            }
+        }
+
+        async function checkSearch() {
+            try {
+                // 测试搜索功能
+                const { data, error } = await supabase
+                    .from('users')
+                    .select('id, email, name')
+                    .ilike('email', '%@%')
+                    .limit(5);
+                
+                if (error) {
+                    updateStatus('search', 'error', `❌ 搜索功能测试失败: ${error.message}`);
+                    return false;
+                }
+                
+                const count = data ? data.length : 0;
+                updateStatus('search', 'success', `✅ 搜索功能正常<br><small>找到 ${count} 个用户（测试查询）</small>`);
+                return true;
+            } catch (error) {
+                updateStatus('search', 'error', `❌ 搜索测试异常: ${error.message}`);
+                return false;
+            }
+        }
+
+        async function runAllChecks() {
+            const btn = document.getElementById('checkBtn');
+            btn.disabled = true;
+            btn.textContent = '检查中...';
+            successCount = 0;
+            
+            // 1. 检查连接
+            const connected = await checkConnection();
+            if (!connected) {
+                btn.disabled = false;
+                btn.textContent = '重新检查';
+                return;
+            }
+            
+            // 2. 检查表
+            await checkTable('users');
+            await checkTable('friend_requests');
+            await checkTable('friends');
+            
+            // 3. 检查 RLS
+            await checkRLS();
+            
+            // 4. 检查搜索功能
+            await checkSearch();
+            
+            // 显示总结
+            document.getElementById('summary').style.display = 'block';
+            document.getElementById('successCount').textContent = successCount;
+            
+            btn.disabled = false;
+            btn.textContent = '重新检查';
+        }
+
+        // 页面加载时自动检查
+        window.addEventListener('load', () => {
+            setTimeout(runAllChecks, 500);
+        });
+    </script>
+</body>
+</html>
