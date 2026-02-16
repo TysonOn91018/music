@@ -1255,13 +1255,20 @@ function chatLoadMessages() {
           // 如果是 AbortError，显示友好消息但不阻止功能
           if (isAbortLike && els.chatMessages) {
             // 只在第一次失败时显示提示，之后静默处理
-            const hasErrorMsg = els.chatMessages.innerHTML.includes("メッセージ読み込み中");
+            const hasErrorMsg = els.chatMessages.innerHTML.includes("メッセージ読み込み中") ||
+                               els.chatMessages.innerHTML.includes("チャットを開始");
             if (!hasErrorMsg) {
               els.chatMessages.innerHTML =
                 `<div class="chatMsg">` +
-                `<div class="chatMsg__meta">メッセージ読み込み中...</div>` +
-                `<div class="chatMsg__text">ネットワーク接続の問題により、メッセージの読み込みに時間がかかっています。新しいメッセージは正常に表示されます。</div>` +
+                `<div class="chatMsg__meta">チャットを開始</div>` +
+                `<div class="chatMsg__text">過去のメッセージの読み込みに失敗しましたが、新しいメッセージは正常に送受信できます。下の入力欄からメッセージを送信してください。</div>` +
                 `</div>`;
+              // 3秒后自动清除提示，让界面更干净
+              setTimeout(() => {
+                if (els.chatMessages && els.chatMessages.innerHTML.includes("チャットを開始")) {
+                  els.chatMessages.innerHTML = "";
+                }
+              }, 3000);
             }
             // 不再自动重试，避免无限循环
             // 新消息会通过 Realtime 订阅正常显示
@@ -1321,13 +1328,20 @@ function chatLoadMessages() {
       // 如果是超时或中止错误，显示更友好的消息，但不阻止聊天功能
       if (isAbortLike && els.chatMessages) {
         // 只在第一次失败时显示提示，之后静默处理
-        const hasErrorMsg = els.chatMessages.innerHTML.includes("メッセージ読み込み中");
+        const hasErrorMsg = els.chatMessages.innerHTML.includes("メッセージ読み込み中") ||
+                           els.chatMessages.innerHTML.includes("チャットを開始");
         if (!hasErrorMsg) {
           els.chatMessages.innerHTML =
             `<div class="chatMsg">` +
-            `<div class="chatMsg__meta">メッセージ読み込み中...</div>` +
-            `<div class="chatMsg__text">ネットワーク接続の問題により、メッセージの読み込みに時間がかかっています。新しいメッセージは正常に表示されます。</div>` +
+            `<div class="chatMsg__meta">チャットを開始</div>` +
+            `<div class="chatMsg__text">過去のメッセージの読み込みに失敗しましたが、新しいメッセージは正常に送受信できます。下の入力欄からメッセージを送信してください。</div>` +
             `</div>`;
+          // 3秒后自动清除提示，让界面更干净
+          setTimeout(() => {
+            if (els.chatMessages && els.chatMessages.innerHTML.includes("チャットを開始")) {
+              els.chatMessages.innerHTML = "";
+            }
+          }, 3000);
         }
         // 不再自动重试，避免无限循环
         // 新消息会通过 Realtime 订阅正常显示
@@ -1377,7 +1391,8 @@ function chatSubscribeMessages() {
         // 如果之前有错误消息，清除它（新消息到达说明连接正常）
         const hasErrorMsg = els.chatMessages.innerHTML.includes("メッセージ読み込み中") || 
                            els.chatMessages.innerHTML.includes("リクエスト失敗") ||
-                           els.chatMessages.innerHTML.includes("読み込み失敗");
+                           els.chatMessages.innerHTML.includes("読み込み失敗") ||
+                           els.chatMessages.innerHTML.includes("チャットを開始");
         if (hasErrorMsg && els.chatMessages.children.length === 1) {
           els.chatMessages.innerHTML = "";
         }

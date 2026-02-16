@@ -157,7 +157,7 @@ ORDER BY tablename;
 -- 检查 Realtime 是否启用
 SELECT 
   'Realtime status' as status,
-  tablename,
+  table_name as tablename,
   CASE 
     WHEN EXISTS (
       SELECT 1 
