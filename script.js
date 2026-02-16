@@ -1009,6 +1009,8 @@ function resetToPick() {
  * --------------------------- */
 let chatPresenceChannel = null;
 let chatMessagesSub = null;
+let chatReconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 3;
 
 function getRoomId() {
   if (!state.mood || !state.currentTrack?.url) return null;
@@ -1081,13 +1083,21 @@ function chatJoinRoom() {
     return;
   }
 
+  // 重置重连计数
+  chatReconnectAttempts = 0;
+
   state.chatRoomId = roomId;
   const roomHash = getRoomIdHash(roomId);
   const channelName = "room:" + roomHash;
   console.log("[Chat] Joining room:", roomId, "hash:", roomHash, "channel:", channelName);
   
   chatPresenceChannel = supabase.channel(channelName, {
-    config: { presence: { key: getChatUserId() } },
+    config: { 
+      presence: { key: getChatUserId() },
+      // 添加重连配置
+      reconnect: true,
+      rejoinAfterMs: (tries) => Math.min(tries * 1000, 10000) // 最多10秒
+    },
   });
 
   chatPresenceChannel
@@ -1124,13 +1134,56 @@ function chatJoinRoom() {
       }
       if (status === "CHANNEL_ERROR") {
         console.error("[Chat] Channel error");
-        updateChatButton(false, "Supabase 接続に失敗しました。コンソールエラーまたは Supabase 設定を確認してください");
-        toast("Supabase 接続異常 - 確認してください：1) Supabase → Settings → API → あなたのドメインが許可されているか 2) ブラウザコンソールエラー");
+        chatReconnectAttempts++;
+        
+        // 如果重连次数过多，停止重连并显示错误
+        if (chatReconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+          console.error("[Chat] Max reconnect attempts reached, giving up");
+          updateChatButton(false, "Supabase 接続に失敗しました。ページをリロードしてください");
+          // 只显示一次错误提示
+          if (chatReconnectAttempts === MAX_RECONNECT_ATTEMPTS) {
+            toast("Supabase 接続に問題があります。ページをリロードしてください");
+          }
+          return;
+        }
+        
+        // 延迟显示错误，给连接一些时间
+        setTimeout(() => {
+          // 检查是否已经成功连接
+          if (chatPresenceChannel && (chatPresenceChannel.state === "joined" || chatPresenceChannel.state === "joined")) {
+            console.log("[Chat] Channel recovered, ignoring error");
+            chatReconnectAttempts = 0; // 重置计数
+            return;
+          }
+          // 只在第一次错误时显示提示
+          if (chatReconnectAttempts === 1) {
+            console.warn("[Chat] Connection error, will retry...");
+          }
+        }, 2000);
       }
       if (status === "TIMED_OUT" || status === "CLOSED") {
         console.warn("[Chat] Channel closed/timed out:", status);
-        updateChatButton(false, "接続タイムアウト - ネットワークまたは Supabase Realtime 設定を確認してください");
-        toast("Supabase 接続がタイムアウトしました。ネットワークまたは Realtime が有効になっているか確認してください");
+        chatReconnectAttempts++;
+        
+        // 如果重连次数过多，停止重连
+        if (chatReconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+          console.warn("[Chat] Max reconnect attempts reached for timeout");
+          updateChatButton(false, "接続タイムアウト - ネットワークを確認してください");
+          // 不显示 toast，因为可能只是暂时的网络问题
+          return;
+        }
+        
+        // 延迟显示错误，给重连一些时间
+        setTimeout(() => {
+          // 检查是否已经成功连接
+          if (chatPresenceChannel && (chatPresenceChannel.state === "joined" || chatPresenceChannel.state === "joined")) {
+            console.log("[Chat] Channel recovered, ignoring timeout");
+            chatReconnectAttempts = 0; // 重置计数
+            return;
+          }
+          // 只在控制台记录，不显示 toast
+          console.warn("[Chat] Connection timeout, will retry...");
+        }, 3000);
       }
     });
 }
@@ -1191,37 +1244,54 @@ function chatLoadMessages() {
       // 处理查询结果
       if (result && typeof result === 'object' && ('data' in result || 'error' in result)) {
         const { data, error } = result;
-      if (error) {
-        console.warn("Supabase chat load:", error);
-        const errMsg = escapeHtml(String(error.message || "不明なエラー"));
-        const isAbortLike =
-          String(error.message || "").includes("AbortError") ||
-          String(error.message || "").toLowerCase().includes("aborted") ||
-          String(error.message || "").toLowerCase().includes("failed to fetch");
-        const origin = window.location?.origin || "";
-        const hint = (() => {
-          if (window.location?.protocol === "file:") {
-            return "現在 file:// で直接ページを開いています。Supabase が Origin=null をブロックする可能性があります。ローカルサーバーで開いてください（例：npx serve .）。";
+        if (error) {
+          console.warn("Supabase chat load:", error);
+          const errMsg = escapeHtml(String(error.message || "不明なエラー"));
+          const isAbortLike =
+            String(error.message || "").includes("AbortError") ||
+            String(error.message || "").toLowerCase().includes("aborted") ||
+            String(error.message || "").toLowerCase().includes("failed to fetch");
+          
+          // 如果是 AbortError，显示友好消息但不阻止功能
+          if (isAbortLike && els.chatMessages) {
+            els.chatMessages.innerHTML =
+              `<div class="chatMsg">` +
+              `<div class="chatMsg__meta">メッセージ読み込み中...</div>` +
+              `<div class="chatMsg__text">ネットワーク接続の問題により、メッセージの読み込みに時間がかかっています。新しいメッセージは正常に表示されます。</div>` +
+              `</div>`;
+            // 3秒后自动重试一次
+            setTimeout(() => {
+              if (state.chatRoomId) {
+                chatLoadMessages();
+              }
+            }, 3000);
+            return;
           }
-          if (isAbortLike) {
-            return (
-              `これはネットワーク/CORS/インターセプトによるリクエストキャンセルの可能性が高いです。確認してください：` +
-              `1) Supabase → Settings → API → CORS Allowed Origins に ${origin} が含まれているか ` +
-              `2) 広告ブロッカー/Brave Shields をオフにして再試行 ` +
-              `3) ネットワークが *.supabase.co にアクセスできるか（必要に応じて VPN をオン）`
-            );
+          
+          const origin = window.location?.origin || "";
+          const hint = (() => {
+            if (window.location?.protocol === "file:") {
+              return "現在 file:// で直接ページを開いています。Supabase が Origin=null をブロックする可能性があります。ローカルサーバーで開いてください（例：npx serve .）。";
+            }
+            if (isAbortLike) {
+              return (
+                `これはネットワーク/CORS/インターセプトによるリクエストキャンセルの可能性が高いです。確認してください：` +
+                `1) Supabase → Settings → API → CORS Allowed Origins に ${origin} が含まれているか ` +
+                `2) 広告ブロッカー/Brave Shields をオフにして再試行 ` +
+                `3) ネットワークが *.supabase.co にアクセスできるか（必要に応じて VPN をオン）`
+              );
+            }
+            return "一般的な原因：1) chat_messages テーブルが作成されていない 2) RLS が有効だが select/insert ポリシーが書かれていない 3) URL/anonKey が正しくない。";
+          })();
+          if (els.chatMessages) {
+            els.chatMessages.innerHTML =
+              `<div class="chatMsg">` +
+              `<div class="chatMsg__meta">読み込み失敗</div>` +
+              `<div class="chatMsg__text">${errMsg}<br/><span style="opacity:.75">${escapeHtml(hint)}</span></div>` +
+              `</div>`;
           }
-          return "一般的な原因：1) chat_messages テーブルが作成されていない 2) RLS が有効だが select/insert ポリシーが書かれていない 3) URL/anonKey が正しくない。";
-        })();
-        if (els.chatMessages) {
-          els.chatMessages.innerHTML =
-            `<div class="chatMsg">` +
-            `<div class="chatMsg__meta">読み込み失敗</div>` +
-            `<div class="chatMsg__text">${errMsg}<br/><span style="opacity:.75">${escapeHtml(hint)}</span></div>` +
-            `</div>`;
+          return;
         }
-        return;
-      }
         if (!data) return;
         els.chatMessages.innerHTML = data
           .map((row) => {
