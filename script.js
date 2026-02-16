@@ -1220,9 +1220,9 @@ function chatLoadMessages() {
   const roomId = state.chatRoomId;
   const roomHash = getRoomIdHash(roomId);
   
-  // 添加超时处理（10秒）
+  // 添加超时处理（5秒，因为历史消息不是关键功能）
   const timeoutPromise = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error("リクエストがタイムアウトしました")), 10000)
+    setTimeout(() => reject(new Error("リクエストがタイムアウトしました")), 5000)
   );
   
   Promise.race([
@@ -1254,17 +1254,18 @@ function chatLoadMessages() {
           
           // 如果是 AbortError，显示友好消息但不阻止功能
           if (isAbortLike && els.chatMessages) {
-            els.chatMessages.innerHTML =
-              `<div class="chatMsg">` +
-              `<div class="chatMsg__meta">メッセージ読み込み中...</div>` +
-              `<div class="chatMsg__text">ネットワーク接続の問題により、メッセージの読み込みに時間がかかっています。新しいメッセージは正常に表示されます。</div>` +
-              `</div>`;
-            // 3秒后自动重试一次
-            setTimeout(() => {
-              if (state.chatRoomId) {
-                chatLoadMessages();
-              }
-            }, 3000);
+            // 只在第一次失败时显示提示，之后静默处理
+            const hasErrorMsg = els.chatMessages.innerHTML.includes("メッセージ読み込み中");
+            if (!hasErrorMsg) {
+              els.chatMessages.innerHTML =
+                `<div class="chatMsg">` +
+                `<div class="chatMsg__meta">メッセージ読み込み中...</div>` +
+                `<div class="chatMsg__text">ネットワーク接続の問題により、メッセージの読み込みに時間がかかっています。新しいメッセージは正常に表示されます。</div>` +
+                `</div>`;
+            }
+            // 不再自动重试，避免无限循环
+            // 新消息会通过 Realtime 订阅正常显示
+            console.warn("[Chat] History load failed, but new messages will work via Realtime");
             return;
           }
           
@@ -1319,17 +1320,18 @@ function chatLoadMessages() {
       
       // 如果是超时或中止错误，显示更友好的消息，但不阻止聊天功能
       if (isAbortLike && els.chatMessages) {
-        els.chatMessages.innerHTML =
-          `<div class="chatMsg">` +
-          `<div class="chatMsg__meta">メッセージ読み込み中...</div>` +
-          `<div class="chatMsg__text">ネットワーク接続の問題により、メッセージの読み込みに時間がかかっています。新しいメッセージは正常に表示されます。</div>` +
-          `</div>`;
-        // 3秒后自动重试一次
-        setTimeout(() => {
-          if (state.chatRoomId) {
-            chatLoadMessages();
-          }
-        }, 3000);
+        // 只在第一次失败时显示提示，之后静默处理
+        const hasErrorMsg = els.chatMessages.innerHTML.includes("メッセージ読み込み中");
+        if (!hasErrorMsg) {
+          els.chatMessages.innerHTML =
+            `<div class="chatMsg">` +
+            `<div class="chatMsg__meta">メッセージ読み込み中...</div>` +
+            `<div class="chatMsg__text">ネットワーク接続の問題により、メッセージの読み込みに時間がかかっています。新しいメッセージは正常に表示されます。</div>` +
+            `</div>`;
+        }
+        // 不再自动重试，避免无限循环
+        // 新消息会通过 Realtime 订阅正常显示
+        console.warn("[Chat] History load failed, but new messages will work via Realtime");
         return;
       }
       
@@ -1371,6 +1373,15 @@ function chatSubscribeMessages() {
       (payload) => {
         const row = payload.new;
         if (!row || !els.chatMessages) return;
+        
+        // 如果之前有错误消息，清除它（新消息到达说明连接正常）
+        const hasErrorMsg = els.chatMessages.innerHTML.includes("メッセージ読み込み中") || 
+                           els.chatMessages.innerHTML.includes("リクエスト失敗") ||
+                           els.chatMessages.innerHTML.includes("読み込み失敗");
+        if (hasErrorMsg && els.chatMessages.children.length === 1) {
+          els.chatMessages.innerHTML = "";
+        }
+        
         const time = row.created_at ? new Date(row.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
         const name = escapeHtml(String(row.user_name || "?"));
         const msg = escapeHtml(String(row.message || ""));
