@@ -1193,7 +1193,7 @@ function chatLoadMessages() {
         const { data, error } = result;
       if (error) {
         console.warn("Supabase chat load:", error);
-        const errMsg = escapeHtml(String(error.message || "未知错误"));
+        const errMsg = escapeHtml(String(error.message || "不明なエラー"));
         const isAbortLike =
           String(error.message || "").includes("AbortError") ||
           String(error.message || "").toLowerCase().includes("aborted") ||
@@ -1239,7 +1239,7 @@ function chatLoadMessages() {
     })
     .catch((e) => {
       console.warn("Supabase chat load:", e);
-      const errMsg = escapeHtml(String(e?.message || e || "未知错误"));
+      const errMsg = escapeHtml(String(e?.message || e || "不明なエラー"));
       const isAbortLike =
         String(e?.name || "").includes("AbortError") ||
         String(e?.message || "").includes("AbortError") ||
