@@ -1375,18 +1375,37 @@ function chatLoadMessages() {
 }
 
 function chatSubscribeMessages() {
-  if (!state.chatRoomId) return;
+  if (!state.chatRoomId) {
+    console.warn("[Chat] Cannot subscribe: roomId missing");
+    return;
+  }
   const supabase = getSupabase();
-  if (!supabase) return;
+  if (!supabase) {
+    console.error("[Chat] Cannot subscribe: Supabase client not available");
+    return;
+  }
   const roomHash = getRoomIdHash(state.chatRoomId);
+  
+  // 如果已有订阅，先取消
+  if (chatMessagesSub) {
+    chatMessagesSub.unsubscribe();
+    chatMessagesSub = null;
+  }
+  
+  console.log("[Chat] Subscribing to messages for room:", roomHash);
+  
   chatMessagesSub = supabase
     .channel("chat:" + roomHash)
     .on(
       "postgres_changes",
       { event: "INSERT", schema: "public", table: "chat_messages", filter: "room_id=eq." + roomHash },
       (payload) => {
+        console.log("[Chat] New message received:", payload);
         const row = payload.new;
-        if (!row || !els.chatMessages) return;
+        if (!row || !els.chatMessages) {
+          console.warn("[Chat] Invalid message payload or chatMessages element missing");
+          return;
+        }
         
         // 如果之前有错误消息，清除它（新消息到达说明连接正常）
         const hasErrorMsg = els.chatMessages.innerHTML.includes("メッセージ読み込み中") || 
@@ -1407,26 +1426,56 @@ function chatSubscribeMessages() {
         els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
       }
     )
-    .subscribe();
+    .subscribe((status) => {
+      console.log("[Chat] Message subscription status:", status);
+      if (status === "SUBSCRIBED") {
+        console.log("[Chat] Successfully subscribed to messages");
+      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        console.error("[Chat] Message subscription error:", status);
+      }
+    });
 }
 
 function chatSendMessage(text) {
   const t = String(text).trim();
-  if (!t || !state.chatRoomId) return;
+  if (!t || !state.chatRoomId) {
+    console.warn("[Chat] Cannot send message: text or roomId missing", { text: t, roomId: state.chatRoomId });
+    return;
+  }
   const supabase = getSupabase();
-  if (!supabase) return;
+  if (!supabase) {
+    console.error("[Chat] Cannot send message: Supabase client not available");
+    toast("Supabase 接続エラー。ページを再読み込みしてください。");
+    return;
+  }
 
   const roomId = state.chatRoomId;
   const roomHash = getRoomIdHash(roomId);
+  const userId = getChatUserId();
+  const userName = getChatUserName();
+  
+  console.log("[Chat] Sending message:", { roomHash, userId, userName, message: t });
+  
   supabase
     .from("chat_messages")
     .insert({
       room_id: roomHash,
-      user_id: getChatUserId(),
-      user_name: getChatUserName(),
+      user_id: userId,
+      user_name: userName,
       message: t,
     })
-    .then(() => {});
+    .then((result) => {
+      if (result.error) {
+        console.error("[Chat] Failed to send message:", result.error);
+        toast("メッセージの送信に失敗しました: " + (result.error.message || "不明なエラー"));
+      } else {
+        console.log("[Chat] Message sent successfully");
+      }
+    })
+    .catch((error) => {
+      console.error("[Chat] Error sending message:", error);
+      toast("メッセージの送信に失敗しました: " + (error.message || "不明なエラー"));
+    });
 }
 
 function openChatPanel() {
