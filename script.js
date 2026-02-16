@@ -1456,26 +1456,33 @@ function chatSendMessage(text) {
   
   console.log("[Chat] Sending message:", { roomHash, userId, userName, message: t });
   
-  supabase
-    .from("chat_messages")
-    .insert({
-      room_id: roomHash,
-      user_id: userId,
-      user_name: userName,
-      message: t,
-    })
-    .then((result) => {
-      if (result.error) {
-        console.error("[Chat] Failed to send message:", result.error);
-        toast("メッセージの送信に失敗しました: " + (result.error.message || "不明なエラー"));
+  // 使用 async/await 确保错误被正确捕获
+  (async () => {
+    try {
+      const { data, error } = await supabase
+        .from("chat_messages")
+        .insert({
+          room_id: roomHash,
+          user_id: userId,
+          user_name: userName,
+          message: t,
+        })
+        .select(); // 添加 select() 以获取返回的数据
+      
+      if (error) {
+        console.error("[Chat] Failed to send message:", error);
+        console.error("[Chat] Error details:", JSON.stringify(error, null, 2));
+        toast("メッセージの送信に失敗しました: " + (error.message || "不明なエラー"));
       } else {
-        console.log("[Chat] Message sent successfully");
+        console.log("[Chat] Message sent successfully, data:", data);
+        // 消息发送成功，应该会通过 Realtime 订阅自动显示
       }
-    })
-    .catch((error) => {
-      console.error("[Chat] Error sending message:", error);
+    } catch (error) {
+      console.error("[Chat] Exception while sending message:", error);
+      console.error("[Chat] Exception details:", JSON.stringify(error, null, 2));
       toast("メッセージの送信に失敗しました: " + (error.message || "不明なエラー"));
-    });
+    }
+  })();
 }
 
 function openChatPanel() {
@@ -1603,12 +1610,42 @@ runEnterBurst._t = 0;
 async function checkAuthSession() {
   const supabase = getSupabase();
   if (!supabase) return;
-  const { data: { session }, error } = await supabase.auth.getSession();
-  if (session?.user) {
-    state.user = session.user;
-    updateUserUI(true);
-    await ensureUserRecord(session.user);
-  } else {
+  
+  try {
+    const { data: { session }, error } = await supabase.auth.getSession();
+    
+    if (error) {
+      console.warn("[Auth] Session check error:", error);
+      // 认证错误不影响聊天功能，静默处理
+      state.user = null;
+      updateUserUI(false);
+      return;
+    }
+    
+    if (session?.user) {
+      state.user = session.user;
+      updateUserUI(true);
+      await ensureUserRecord(session.user);
+    } else {
+      state.user = null;
+      updateUserUI(false);
+    }
+  } catch (e) {
+    // 捕获 AbortError 或其他错误，不影响聊天功能
+    const isAbortLike = 
+      String(e?.name || "").includes("AbortError") ||
+      String(e?.message || "").includes("AbortError") ||
+      String(e?.message || "").toLowerCase().includes("aborted");
+    
+    if (isAbortLike) {
+      // 静默处理 AbortError（认证检查被取消不影响聊天）
+      // 不显示错误，因为聊天功能不需要登录
+      console.warn("[Auth] Session check aborted (this is OK, chat works without login)");
+    } else {
+      console.error("[Auth] Session check failed:", e);
+    }
+    
+    // 即使认证检查失败，也不影响聊天功能
     state.user = null;
     updateUserUI(false);
   }
