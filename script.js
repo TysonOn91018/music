@@ -1451,7 +1451,10 @@ function openChatPanel() {
   
   els.chatPanel.classList.add("chatPanel--open");
   els.chatPanel.setAttribute("aria-hidden", "false");
-  chatLoadMessages();
+  // 不加载历史消息，只通过 Realtime 接收新消息（聊天只持续几分钟）
+  if (els.chatMessages) {
+    els.chatMessages.innerHTML = "";
+  }
   chatSubscribeMessages();
   setTimeout(() => els.chatInput?.focus(), 100);
 }
