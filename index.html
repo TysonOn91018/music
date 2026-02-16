@@ -42,6 +42,15 @@
                 <div class="userProfile__avatar">👤</div>
                 <div class="userProfile__name" id="profileName">—</div>
               </div>
+              <div class="savedSongsSection">
+                <div class="listHead">
+                  <div class="listHead__label">保存した曲</div>
+                  <div class="listHead__sub" id="savedSongsCount">0 曲</div>
+                </div>
+                <div id="savedSongsList" class="list" role="list">
+                  <div class="listItem listItem--empty">保存した曲がありません</div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -148,20 +157,28 @@
               <div class="now now--tight">
                 <div class="now__title" id="trackTitle">読み込み中…</div>
                 <div class="now__copy" id="moodCopy">肩の力を抜いて、まずは深呼吸。</div>
+                <div class="now__actions">
+                  <button id="saveSongBtn" class="btn btn--save" type="button" title="この曲を保存" aria-label="保存">
+                    <span class="btn--save__icon">♡</span>
+                  </button>
+                </div>
               </div>
 
               <div class="playerBar">
                 <button id="shuffleBtn" class="btn btn--icon" type="button" title="シャッフル" aria-label="シャッフル">🔀</button>
                 <button id="prevBtn" class="btn btn--icon" type="button" title="前の曲" aria-label="前の曲">⏮</button>
-                <button id="playBtn" class="btn btn--primary" type="button">▶ 再生</button>
+                <button id="playBtn" class="btn btn--primary" type="button">▶</button>
                 <button id="nextBtn" class="btn btn--icon" type="button" title="次の曲" aria-label="次の曲">⏭</button>
                 <button id="repeatBtn" class="btn btn--icon" type="button" title="リピート" aria-label="リピート">🔁</button>
                 <div class="volumeWrap">
                   <button id="volumeMute" class="btn btn--icon" type="button" title="ミュート" aria-label="音量">🔊</button>
                   <input id="volumeSlider" type="range" min="0" max="100" value="100" title="音量" aria-label="音量" />
                 </div>
-                <button id="chatBtn" class="btn btn--icon btn--chat" type="button" title="同じ曲を聴いている人とチャット（同時に聴いている人が必要）" disabled>💬 Chat</button>
-                <button id="backBtn" class="btn btn--back" type="button" title="気分を選ぶ画面に戻る">← 気分を選ぶ</button>
+                <button id="chatBtn" class="btn btn--chat" title="同じ曲を聴いている人とチャット（同時に聴いている人が必要）" disabled>
+                  <div class="btn--chat__icon">💬</div>
+                  <div class="btn--chat__text">Chat</div>
+                  <div class="btn--chat__hint">(2人必要)</div>
+                </button>
               </div>
 
               <div class="progress progress--wide" aria-label="再生状況">

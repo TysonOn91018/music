@@ -224,6 +224,9 @@ const els = {
   userName: document.getElementById("userName"),
   userEmail: document.getElementById("userEmail"),
   profileName: document.getElementById("profileName"),
+  saveSongBtn: document.getElementById("saveSongBtn"),
+  savedSongsList: document.getElementById("savedSongsList"),
+  savedSongsCount: document.getElementById("savedSongsCount"),
 };
 
 let state = {
@@ -236,6 +239,8 @@ let state = {
   canChat: false,
   chatRoomId: null,
   user: null,
+  savedSongs: [],
+  isCurrentTrackSaved: false,
 };
 
 /* ---------------------------
@@ -433,6 +438,9 @@ function loadTrack(track, { autoplay = true, fadeIn = false } = {}) {
   if (els.detailTime) els.detailTime.textContent = "—";
   setPlayBtn(false);
   highlightCurrentTrack();
+  
+  // 检查当前歌曲是否已保存
+  checkCurrentTrackSaved();
 
   if (autoplay) {
     if (fadeIn) {
@@ -471,7 +479,7 @@ function togglePlay() {
 }
 
 function setPlayBtn(isPlaying) {
-  els.playBtn.textContent = isPlaying ? "⏸ 暂停" : "▶ 播放";
+  els.playBtn.textContent = isPlaying ? "⏸" : "▶";
 }
 
 /* ---------------------------
@@ -804,6 +812,19 @@ function bind() {
         els.chatInput.value = "";
       }
     }
+  });
+
+  // 保存歌曲按钮
+  els.saveSongBtn?.addEventListener("click", async () => {
+    if (!state.user) {
+      openAuthModal("login");
+      return;
+    }
+    if (!state.currentTrack) {
+      toast("曲が選択されていません");
+      return;
+    }
+    await toggleSaveSong();
   });
 
   // 汉堡菜单切换
@@ -1207,8 +1228,11 @@ function updateChatButton(canOpen, tooltip) {
   els.chatBtn.disabled = !canOpen;
   const defaultMsg = canOpen ? "同じ曲を聴いている人とチャット" : "同時に聴いている人が2人未満のため、チャットを開けません";
   els.chatBtn.title = tooltip || defaultMsg;
-  if (els.chatBtn.textContent.includes("Chat")) {
-    els.chatBtn.textContent = canOpen ? "💬 Chat" : "💬 Chat (2人必要)";
+  
+  // 更新按钮内容
+  const hintEl = els.chatBtn.querySelector('.btn--chat__hint');
+  if (hintEl) {
+    hintEl.textContent = canOpen ? "" : "(2人必要)";
   }
 }
 
@@ -1838,6 +1862,240 @@ function loadUserProfile() {
   const email = state.user?.email || "—";
   if (els.profileName) els.profileName.textContent = name;
   if (els.userEmail) els.userEmail.textContent = email;
+  // 加载保存的歌曲列表
+  loadSavedSongs();
+}
+
+/* ---------------------------
+ * 保存歌曲功能
+ * --------------------------- */
+
+/**
+ * 切换保存/取消保存当前歌曲
+ */
+async function toggleSaveSong() {
+  if (!state.user || !state.currentTrack) return;
+  
+  const supabase = getSupabase();
+  if (!supabase) {
+    toast("Supabase が設定されていません");
+    return;
+  }
+
+  try {
+    if (state.isCurrentTrackSaved) {
+      // 取消保存
+      const { error } = await supabase
+        .from("saved_songs")
+        .delete()
+        .eq("user_id", state.user.id)
+        .eq("track_url", state.currentTrack.url);
+      
+      if (error) throw error;
+      
+      state.isCurrentTrackSaved = false;
+      updateSaveButton();
+      toast("保存を解除しました");
+      // 重新加载保存列表
+      loadSavedSongs();
+    } else {
+      // 保存歌曲
+      const { error } = await supabase
+        .from("saved_songs")
+        .insert({
+          user_id: state.user.id,
+          track_title: state.currentTrack.title,
+          track_url: state.currentTrack.url,
+          track_artist: state.currentTrack.artist || MOODS[state.mood]?.tag || "Mood Player",
+          mood: state.mood,
+        });
+      
+      if (error) {
+        // 如果是重复保存错误，忽略
+        if (error.code !== "23505") throw error;
+      }
+      
+      state.isCurrentTrackSaved = true;
+      updateSaveButton();
+      toast("曲を保存しました");
+      // 重新加载保存列表
+      loadSavedSongs();
+    }
+  } catch (error) {
+    console.error("保存歌曲失败:", error);
+    toast("保存に失敗しました: " + (error.message || "不明なエラー"));
+  }
+}
+
+/**
+ * 更新保存按钮状态
+ */
+function updateSaveButton() {
+  if (!els.saveSongBtn) return;
+  const icon = els.saveSongBtn.querySelector(".btn--save__icon");
+  if (icon) {
+    icon.textContent = state.isCurrentTrackSaved ? "❤" : "♡";
+  }
+  els.saveSongBtn.classList.toggle("btn--save--active", state.isCurrentTrackSaved);
+  els.saveSongBtn.title = state.isCurrentTrackSaved ? "保存を解除" : "この曲を保存";
+}
+
+/**
+ * 检查当前歌曲是否已保存
+ */
+async function checkCurrentTrackSaved() {
+  if (!state.user || !state.currentTrack) {
+    state.isCurrentTrackSaved = false;
+    updateSaveButton();
+    return;
+  }
+
+  const supabase = getSupabase();
+  if (!supabase) {
+    state.isCurrentTrackSaved = false;
+    updateSaveButton();
+    return;
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("saved_songs")
+      .select("id")
+      .eq("user_id", state.user.id)
+      .eq("track_url", state.currentTrack.url)
+      .limit(1);
+    
+    if (error) throw error;
+    
+    state.isCurrentTrackSaved = data && data.length > 0;
+    updateSaveButton();
+  } catch (error) {
+    console.error("检查保存状态失败:", error);
+    state.isCurrentTrackSaved = false;
+    updateSaveButton();
+  }
+}
+
+/**
+ * 加载保存的歌曲列表
+ */
+async function loadSavedSongs() {
+  if (!state.user || !els.savedSongsList) return;
+  
+  const supabase = getSupabase();
+  if (!supabase) {
+    els.savedSongsList.innerHTML = '<div class="listItem listItem--empty">Supabase が設定されていません</div>';
+    return;
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("saved_songs")
+      .select("*")
+      .eq("user_id", state.user.id)
+      .order("saved_at", { ascending: false });
+    
+    if (error) throw error;
+    
+    state.savedSongs = data || [];
+    
+    // 更新计数
+    if (els.savedSongsCount) {
+      els.savedSongsCount.textContent = `${state.savedSongs.length} 曲`;
+    }
+    
+    // 渲染列表
+    if (state.savedSongs.length === 0) {
+      els.savedSongsList.innerHTML = '<div class="listItem listItem--empty">保存した曲がありません</div>';
+    } else {
+      els.savedSongsList.innerHTML = state.savedSongs
+        .map((song, i) => {
+          const safeTitle = escapeHtml(song.track_title);
+          const safeArtist = escapeHtml(song.track_artist || "Mood Player");
+          return `
+            <div class="listItem savedSongItem" data-song-id="${song.id}" data-track-url="${escapeHtml(song.track_url)}">
+              <div class="listItem__idx">${String(i + 1).padStart(2, "0")}</div>
+              <div class="listItem__icon">♪</div>
+              <div class="listItem__meta">
+                <div class="listItem__title">${safeTitle}</div>
+                <div class="listItem__desc">${safeArtist}</div>
+              </div>
+              <div class="listItem__actions">
+                <button class="btn btn--icon btn--small btn--unsave" type="button" title="保存を解除" aria-label="保存を解除" data-song-id="${song.id}">✕</button>
+              </div>
+            </div>
+          `;
+        })
+        .join("");
+      
+      // 绑定点击事件
+      els.savedSongsList.querySelectorAll(".savedSongItem").forEach((item) => {
+        item.addEventListener("click", (e) => {
+          // 如果点击的是删除按钮，不播放
+          if (e.target.closest(".btn--unsave")) return;
+          
+          const url = item.getAttribute("data-track-url");
+          if (url && state.mood) {
+            // 找到对应的track并播放
+            const mood = MOODS[state.mood];
+            if (mood && mood.tracks) {
+              const track = mood.tracks.find(t => t.url === url);
+              if (track) {
+                loadTrack(track, { autoplay: true, fadeIn: true });
+                showPlayer();
+              }
+            }
+          }
+        });
+      });
+      
+      // 绑定删除按钮事件
+      els.savedSongsList.querySelectorAll(".btn--unsave").forEach((btn) => {
+        btn.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          const songId = btn.getAttribute("data-song-id");
+          await unsaveSong(songId);
+        });
+      });
+    }
+  } catch (error) {
+    console.error("加载保存歌曲失败:", error);
+    els.savedSongsList.innerHTML = '<div class="listItem listItem--empty">読み込みに失敗しました</div>';
+  }
+}
+
+/**
+ * 取消保存歌曲
+ */
+async function unsaveSong(songId) {
+  if (!state.user) return;
+  
+  const supabase = getSupabase();
+  if (!supabase) {
+    toast("Supabase が設定されていません");
+    return;
+  }
+
+  try {
+    const { error } = await supabase
+      .from("saved_songs")
+      .delete()
+      .eq("id", songId)
+      .eq("user_id", state.user.id);
+    
+    if (error) throw error;
+    
+    toast("保存を解除しました");
+    // 重新加载列表
+    loadSavedSongs();
+    // 如果删除的是当前歌曲，更新按钮状态
+    if (state.currentTrack) {
+      checkCurrentTrackSaved();
+    }
+  } catch (error) {
+    console.error("取消保存失败:", error);
+    toast("保存解除に失敗しました: " + (error.message || "不明なエラー"));
+  }
 }
 
 
@@ -1910,9 +2168,14 @@ async function init() {
         state.user = session.user;
         updateUserUI(true);
         await ensureUserRecord(session.user);
+        // 检查当前歌曲是否已保存
+        checkCurrentTrackSaved();
       } else if (event === "SIGNED_OUT") {
         state.user = null;
         updateUserUI(false);
+        state.isCurrentTrackSaved = false;
+        updateSaveButton();
+        state.savedSongs = [];
       }
     });
   }
